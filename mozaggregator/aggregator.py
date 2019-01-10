@@ -34,6 +34,9 @@ SCALAR_MEASURE_MAP = {
 
 PROCESS_TYPES = {"parent", "content", "gpu"}
 
+# Bug 1517018 - Don't include large strings
+MAX_STR_SIZE = 2**30
+
 
 def aggregate_metrics(sc, channels, submission_date, main_ping_fraction=1, fennec_ping_fraction=1, num_reducers=10000):
     """ Returns the build-id and submission date aggregates for a given submission date.
@@ -105,7 +108,7 @@ def _extract_histograms(state, payload, process_type="parent"):
     if not isinstance(keyed_histograms, dict):
         return
 
-    for name, histograms in keyed_histograms.iteritems():
+    for name, histograms in _safe_iter(keyed_histograms):
         # See Bug 1275010 and 1275019
         if name in ["MESSAGE_MANAGER_MESSAGE_SIZE",
                     "VIDEO_DETAILED_DROPPED_FRAMES_PROPORTION"]:
@@ -157,7 +160,7 @@ def _extract_main_histograms(state, histograms, process_type):
     if not isinstance(histograms, dict):
         return
 
-    for histogram_name, histogram in histograms.iteritems():
+    for histogram_name, histogram in _safe_iter(histograms):
         _extract_histogram(state, histogram, histogram_name, u"", process_type)
 
 
@@ -165,7 +168,7 @@ def _extract_keyed_histograms(state, histogram_name, histograms, process_type):
     if not isinstance(histograms, dict):
         return
 
-    for key, histogram in histograms.iteritems():
+    for key, histogram in _safe_iter(histograms):
         _extract_histogram(state, histogram, histogram_name, key, process_type)
 
 
@@ -173,9 +176,9 @@ def _extract_simple_measures(state, simple, process_type="parent"):
     if not isinstance(simple, dict):
         return
 
-    for name, value in simple.iteritems():
+    for name, value in _safe_iter(simple):
         if isinstance(value, dict):
-            for sub_name, sub_value in value.iteritems():
+            for sub_name, sub_value in _safe_iter(value):
                 if isinstance(sub_value, (int, float, long)):
                     _extract_scalar_value(
                         state,
@@ -197,7 +200,7 @@ def _extract_numeric_scalars(state, scalar_dict, process):
     if not isinstance(scalar_dict, dict):
         return
 
-    for name, value in scalar_dict.iteritems():
+    for name, value in _safe_iter(scalar_dict):
         if not isinstance(value, (int, float, long)):
             continue
 
@@ -212,7 +215,7 @@ def _extract_keyed_numeric_scalars(state, scalar_dict, process):
     if not isinstance(scalar_dict, dict):
         return
 
-    for name, value in scalar_dict.iteritems():
+    for name, value in _safe_iter(scalar_dict):
         if not isinstance(value, dict):
             continue
 
@@ -317,3 +320,13 @@ def _map_ping_to_dimensions(ping):
         return ((submission_date, channel, version, build_id, application, architecture, os, os_version), subset)
     except:  # noqa
         return None
+
+def _safe_iter(d):
+  for k, v in d.iteritems():
+    if isinstance(k, str):
+      if len(k) > MAX_STR_SIZE:
+        continue
+    if isinstance(v, str):
+      if len(v) > MAX_STR_SIZE:
+        continue
+    yield k, v
